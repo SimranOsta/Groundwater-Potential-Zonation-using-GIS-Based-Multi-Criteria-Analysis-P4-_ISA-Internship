@@ -1,5 +1,3 @@
-# Groundwater-Potential-Zonation-using-GIS-Based-Multi-Criteria-Analysis-P4-_ISA-Internship
-
 # 🌍 Groundwater Potential Mapping using Google Earth Engine, Remote Sensing & GIS
 
 A geospatial analysis project that identifies groundwater potential zones using **Google Earth Engine (GEE)**, **Remote Sensing**, **Geographic Information Systems (GIS)**, and **Weighted Overlay Analysis**. The project integrates multiple environmental factors to generate a groundwater potential map for **Khordha District, Odisha, India**. :contentReference[oaicite:0]{index=0}
