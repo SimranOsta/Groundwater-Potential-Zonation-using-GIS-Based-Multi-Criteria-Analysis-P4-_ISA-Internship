@@ -1,0 +1,233 @@
+var aoi = geometry;
+// Center the map on the AOI
+Map.centerObject(aoi, 10);
+
+// Display AOI
+Map.addLayer(aoi, {
+  color: 'red'
+}, 'Study Area');
+
+// =======================
+// Load SRTM DEM
+// =======================
+
+var dem = ee.Image("USGS/SRTMGL1_003").clip(aoi);
+
+Map.addLayer(
+    dem,
+    {
+      min:0,
+      max:600,
+      palette:['blue','green','yellow','brown','white']
+    },
+    'DEM'
+);
+
+// =======================
+// Generate Slope Map
+// =======================
+
+var slope = ee.Terrain.slope(dem);
+
+Map.addLayer(
+  slope,
+  {
+    min: 0,
+    max: 30,
+    palette: ['white', 'yellow', 'orange', 'red']
+  },
+  'Slope'
+);
+
+// =======================
+// NDVI Calculation
+// =======================
+
+// Load Sentinel-2 Surface Reflectance data
+var s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+  .filterBounds(aoi)
+  .filterDate('2023-01-01', '2023-12-31')
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10))
+  .median()
+  .clip(aoi);
+
+// Calculate NDVI
+var ndvi = s2.normalizedDifference(['B8', 'B4']).rename('NDVI');
+
+// Display NDVI
+Map.addLayer(
+  ndvi,
+  {
+    min: 0,
+    max: 1,
+    palette: ['brown', 'yellow', 'green']
+  },
+  'NDVI'
+);
+
+// =======================
+// Land Use / Land Cover
+// =======================
+
+var lulc = ee.Image("ESA/WorldCover/v100/2020")
+              .select("Map")
+              .clip(aoi);
+
+var lulcPalette = [
+  '006400', // Trees
+  'ffbb22', // Shrubland
+  'ffff4c', // Grassland
+  'f096ff', // Cropland
+  'fa0000', // Built-up
+  'b4b4b4', // Bare/Sparse
+  'f0f0f0', // Snow/Ice
+  '0064c8', // Water
+  '0096a0', // Wetland
+  '00cf75', // Mangroves
+  'fae6a0'  // Moss/Lichen
+];
+
+Map.addLayer(
+  lulc,
+  {
+    min: 10,
+    max: 100,
+    palette: lulcPalette
+  },
+  'LULC'
+);
+
+// ======================================
+// Groundwater Potential Index (GWPI)
+// ======================================
+
+// Normalize DEM (lower elevation = higher recharge)
+var demNorm = dem.unitScale(0, 600).multiply(-1).add(1);
+
+// Normalize Slope (lower slope = better)
+var slopeNorm = slope.unitScale(0, 30).multiply(-1).add(1);
+
+// Normalize NDVI (higher vegetation = better)
+var ndviNorm = ndvi.unitScale(0, 1);
+
+// Simple LULC suitability
+// Cropland (40)=0.8, Trees (10)=1.0, Grassland (30)=0.7,
+// Water (80)=0.9, Built-up (50)=0.2, others=0.5
+var lulcSuitability = lulc.expression(
+  "(b('Map') == 10) ? 1.0" +
+  ": (b('Map') == 40) ? 0.8" +
+  ": (b('Map') == 30) ? 0.7" +
+  ": (b('Map') == 80) ? 0.9" +
+  ": (b('Map') == 50) ? 0.2" +
+  ": 0.5"
+);
+
+// Weighted Overlay
+var gwpi =
+    ndviNorm.multiply(0.30)
+    .add(slopeNorm.multiply(0.25))
+    .add(demNorm.multiply(0.20))
+    .add(lulcSuitability.multiply(0.25));
+
+Map.addLayer(
+    gwpi,
+    {
+      min:0,
+      max:1,
+      palette:['red','orange','yellow','lightgreen','green']
+    },
+    'Groundwater Potential Index'
+);
+
+// ======================================
+// Groundwater Potential Classification
+// ======================================
+
+var gwClass = gwpi.expression(
+  "(b(0) < 0.2) ? 1" +
+  ": (b(0) < 0.4) ? 2" +
+  ": (b(0) < 0.6) ? 3" +
+  ": (b(0) < 0.8) ? 4" +
+  ": 5"
+);
+
+Map.addLayer(
+  gwClass,
+  {
+    min: 1,
+    max: 5,
+    palette: [
+      '8B0000', // Very Low
+      'FF4500', // Low
+      'FFD700', // Moderate
+      '7CFC00', // High
+      '006400'  // Very High
+    ]
+  },
+  'Groundwater Potential Zones'
+);
+
+// Mean Groundwater Potential Index
+
+// Rename the band
+gwpi = gwpi.rename('GWPI');
+
+// Calculate statistics
+var stats = gwpi.reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: aoi,
+  scale: 30,
+  maxPixels: 1e13
+});
+
+print("Average Groundwater Potential Index", stats);
+
+Export.image.toDrive({
+  image: gwClass,
+  description: 'Groundwater_Potential_Khordha',
+  folder: 'EarthEngine',
+  fileNamePrefix: 'Groundwater_Potential_Khordha',
+  region: aoi,
+  scale: 30,
+  maxPixels: 1e13
+});
+
+Export.image.toDrive({
+  image: dem,
+  description: 'DEM_Khordha',
+  folder: 'EarthEngine',
+  fileNamePrefix: 'DEM_Khordha',
+  region: aoi,
+  scale: 30,
+  maxPixels: 1e13
+});
+
+Export.image.toDrive({
+  image: slope,
+  description: 'Slope_Khordha',
+  folder: 'EarthEngine',
+  fileNamePrefix: 'Slope_Khordha',
+  region: aoi,
+  scale: 30,
+  maxPixels: 1e13
+});
+
+Export.image.toDrive({
+  image: ndvi,
+  description: 'NDVI_Khordha',
+  folder: 'EarthEngine',
+  fileNamePrefix: 'NDVI_Khordha',
+  region: aoi,
+  scale: 10,
+  maxPixels: 1e13
+});
+
+Export.image.toDrive({
+  image: lulc,
+  description: 'LULC_Khordha',
+  folder: 'EarthEngine',
+  fileNamePrefix: 'LULC_Khordha',
+  region: aoi,
+  scale: 10,
+  maxPixels: 1e13
+});
